@@ -1,0 +1,5 @@
+*venv
+*.env
+*hh.py
+*superjob.py
+*.idea
