@@ -2,17 +2,27 @@ import requests
 import os
 from terminaltables import AsciiTable
 from dotenv import load_dotenv
+from itertools import count
 
-load_dotenv()
-access_token = os.getenv('SECRET_TOKEN')
+
 url_sj = 'https://api.superjob.ru/2.0/vacancies/'
-headers = {'X-Api-App-Id': access_token}
 url_hh = 'https://api.hh.ru/vacancies'
 most_popular_programing_languages = ['JavaScript', 'Python', 'Java', 'Ruby', 'PHP', 'C++', 'C#', 'C', 'Go']
-vacancies = {language: '' for language in most_popular_programing_languages}
 
 
-def main_url_requst_hh(language):
+def predict_rub_salary(salaries):
+    rub_salary = []
+    for payment_from, payment_to in salaries:
+        if payment_from is not None and payment_to is not None:
+            rub_salary.append(int(payment_from + payment_to) // 2)
+        elif payment_from and payment_to is not None:
+            rub_salary.append(int(payment_from * 1.2))
+        elif payment_to and payment_from is not None:
+            rub_salary.append(int(payment_to * 0.8))
+    return rub_salary
+
+
+def get_main_requst_hh(language):
     params = {
         'text': language,
         'only_with_salary': 'true',
@@ -25,10 +35,8 @@ def main_url_requst_hh(language):
 
 
 def get_pagination_hh(language):
-    pages = main_url_requst_hh(language)['pages']
-    page = 0
-    all_sites = []
-    while page < pages:
+    all_pages = []
+    for page in count(0, 1):
         params = {
             'text': language,
             'only_with_salary': 'true',
@@ -38,25 +46,19 @@ def get_pagination_hh(language):
         }
         page_response = requests.get(url_hh, params=params)
         page_response.raise_for_status()
-        all_sites.append(predict_rub_salary_hh(language))
-        page += 1
-    return all_sites
+        pages = page_response.json()['pages']
+        if page == pages:
+            break
+        else:
+            all_pages.append(predict_rub_salary_hh(language))
+    return all_pages
 
 
 def predict_rub_salary_hh(language):
-    rub_salary = []
-    vacancies_salary = main_url_requst_hh(language)
-    salaries = [vacancies_salary['items'][num]['salary'] for num in range(len(vacancies_salary))]
-    for salary in salaries:
-        if salary['currency'] != 'RUR':
-            continue
-        elif salary['from'] and salary['to']:
-            rub_salary.append(int((salary['from'] + salary['to']) // 2))
-        elif salary['from']:
-            rub_salary.append(int(salary['from'] * 1.2))
-        elif salary['to']:
-            rub_salary.append(int(salary['to'] * 0.8))
-    return rub_salary
+    vacancies_salary = get_main_requst_hh(language)
+    salaries = [vacancies_salary['items'][num]['salary'] for num, vacancy in enumerate(vacancies_salary)]
+    salaries_from_to = [(salary['from'], salary['to']) for salary in salaries]
+    return predict_rub_salary(salaries_from_to)
 
 
 def get_vacancies_processed_hh(pagination):
@@ -77,7 +79,7 @@ def get_average_salary_hh(pagination):
 
 # SuperJob vacancies
 
-def main_url_request_sj(language):
+def get_main_request_sj(language, headers):
     params = {
         'keyword': language,
         'catalogues': ['Разработка', 'Программирование'],
@@ -88,10 +90,10 @@ def main_url_request_sj(language):
     return response.json()
 
 
-def get_pagination_sj(language):
+def get_pagination_sj(language, headers):
     page = 0
     pages = 1
-    all_sites = []
+    all_pages = []
     while pages != 0:
         params = {
             'keyword': language,
@@ -101,26 +103,18 @@ def get_pagination_sj(language):
         }
         page_response = requests.get(url_sj, params=params, headers=headers)
         page_response.raise_for_status()
-        all_sites.append(page_response.json()['objects'])
+        all_pages.append(page_response.json()['objects'])
         pages = len(page_response.json()['objects'])
         page += 1
-    return all_sites
+    return all_pages
 
 
 def predict_rub_salary_for_sj(pagination):
-    rub_salary = []
     salaries = []
-    for id in range(len(pagination)):
-        for num in range(len(pagination[id])):
-            salaries.append((pagination[id][num]['payment_from'], pagination[id][num]['payment_to']))
-    for payment_from, payment_to in salaries:
-        if payment_from > 0 and payment_to > 0:
-            rub_salary.append(int(payment_from + payment_to) // 2)
-        elif payment_from:
-            rub_salary.append(int(payment_from * 1.2))
-        elif payment_to:
-            rub_salary.append(int(payment_to * 0.8))
-    return rub_salary
+    for num_of_page, page in enumerate(pagination):
+        for num, vacancies in enumerate(pagination[num_of_page]):
+            salaries.append((pagination[num_of_page][num]['payment_from'], pagination[num_of_page][num]['payment_to']))
+    return predict_rub_salary(salaries)
 
 
 def get_vacancies_processed_sj(pagination):
@@ -137,46 +131,35 @@ def get_average_salary_sj(pagination):
 
 
 def main():
-    TABLE_DATA = [['Язык программирования ', 'Вакансий найдено', 'Вакансий обработано', 'Средняя зарплата']]
-    for language in most_popular_programing_languages:
-        pagination_sj = get_pagination_sj(language)
-        TABLE_DATA.append([language,
-                           main_url_request_sj(language)['total'],
-                           get_vacancies_processed_sj(pagination_sj),
-                           get_average_salary_sj(pagination_sj),
-                           ])
-    title = 'SuperJob'
-    table_instance = AsciiTable(TABLE_DATA, title)
-    table_instance.justify_columns[4] = 'right'
-    print(table_instance.table)
+    load_dotenv()
+    access_token = os.getenv('SECRET_TOKEN')
+    headers = {'X-Api-App-Id': access_token}
 
-
-def main():
-    TABLE_DATA_HH = [['Язык программирования ', 'Вакансий найдено', 'Вакансий обработано', 'Средняя зарплата']]
+    table_data_hh = [['Язык программирования ', 'Вакансий найдено', 'Вакансий обработано', 'Средняя зарплата']]
     for language in most_popular_programing_languages:
         pagination = get_pagination_hh(language)
-        TABLE_DATA_HH.append([
+        table_data_hh.append([
             language,
-            main_url_requst_hh(language)['found'],
+            get_main_requst_hh(language)['found'],
             get_vacancies_processed_hh(pagination),
             get_average_salary_hh(pagination)
         ])
     title = 'HeadHunter'
-    table_instance = AsciiTable(TABLE_DATA_HH, title)
+    table_instance = AsciiTable(table_data_hh, title)
     table_instance.justify_columns[4] = 'right'
     print(table_instance.table)
     print()
 
-    TABLE_DATA_SJ = [['Язык программирования ', 'Вакансий найдено', 'Вакансий обработано', 'Средняя зарплата']]
+    table_data_sj = [['Язык программирования ', 'Вакансий найдено', 'Вакансий обработано', 'Средняя зарплата']]
     for language in most_popular_programing_languages:
-        pagination_sj = get_pagination_sj(language)
-        TABLE_DATA_SJ.append([language,
-                              main_url_request_sj(language)['total'],
+        pagination_sj = get_pagination_sj(language, headers)
+        table_data_sj.append([language,
+                              get_main_request_sj(language, headers)['total'],
                               get_vacancies_processed_sj(pagination_sj),
                               get_average_salary_sj(pagination_sj),
                               ])
     title = 'SuperJob'
-    table_instance = AsciiTable(TABLE_DATA_SJ, title)
+    table_instance = AsciiTable(table_data_sj, title)
     table_instance.justify_columns[4] = 'right'
     print(table_instance.table)
 
