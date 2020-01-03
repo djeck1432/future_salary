@@ -4,10 +4,10 @@ from terminaltables import AsciiTable
 from dotenv import load_dotenv
 from itertools import count
 
+URL_HH = 'https://api.hh.ru/vacancies'
+URL_SJ = 'https://api.superjob.ru/2.0/vacancies/'
+MOST_POPULAR_PROGRAMING_LANGUAGES = ['JavaScript', 'Python', 'Java', 'Ruby', 'PHP', 'C++', 'C#', 'C', 'Go']
 
-url_sj = 'https://api.superjob.ru/2.0/vacancies/'
-url_hh = 'https://api.hh.ru/vacancies'
-most_popular_programing_languages = ['JavaScript', 'Python', 'Java', 'Ruby', 'PHP', 'C++', 'C#', 'C', 'Go']
 
 
 def predict_rub_salary(salaries):
@@ -29,7 +29,7 @@ def get_main_requst_hh(language):
         'period': 30,
         'area': 1,
     }
-    response = requests.get(url_hh, params=params)
+    response = requests.get(URL_HH, params=params)
     response.raise_for_status()
     return response.json()
 
@@ -44,7 +44,7 @@ def get_pagination_hh(language):
             'area': 1,
             'page': page
         }
-        page_response = requests.get(url_hh, params=params)
+        page_response = requests.get(URL_HH, params=params)
         page_response.raise_for_status()
         pages = page_response.json()['pages']
         if page == pages:
@@ -71,10 +71,10 @@ def get_vacancies_processed_hh(pagination):
 
 def get_average_salary_hh(pagination):
     pages = len(pagination)
-    suma = 0
+    amount = 0
     for page in range(pages):
-        suma += sum(pagination[page])
-    return int(suma // get_vacancies_processed_hh(pagination))
+        amount += sum(pagination[page])
+    return int(amount // get_vacancies_processed_hh(pagination))
 
 
 # SuperJob vacancies
@@ -85,7 +85,7 @@ def get_main_request_sj(language, headers):
         'catalogues': ['Разработка', 'Программирование'],
         'town': 'Москва'
     }
-    response = requests.get(url_sj, params=params, headers=headers)
+    response = requests.get(URL_SJ, params=params, headers=headers)
     response.raise_for_status()
     return response.json()
 
@@ -101,7 +101,7 @@ def get_pagination_sj(language, headers):
             'town': 'Москва',
             'page': page
         }
-        page_response = requests.get(url_sj, params=params, headers=headers)
+        page_response = requests.get(URL_SJ, params=params, headers=headers)
         page_response.raise_for_status()
         all_pages.append(page_response.json()['objects'])
         pages = len(page_response.json()['objects'])
@@ -126,8 +126,14 @@ def get_vacancies_processed_sj(pagination):
 
 
 def get_average_salary_sj(pagination):
-    summa = sum(predict_rub_salary_for_sj(pagination))
-    return summa // len(predict_rub_salary_for_sj(pagination))
+    amount = sum(predict_rub_salary_for_sj(pagination))
+    return amount // len(predict_rub_salary_for_sj(pagination))
+
+
+def create_table(title, table_data):
+    table_instance = AsciiTable(table_data, title)
+    table_instance.justify_columns[4] = 'right'
+    return print(table_instance.table)
 
 
 def main():
@@ -136,32 +142,24 @@ def main():
     headers = {'X-Api-App-Id': access_token}
 
     table_data_hh = [['Язык программирования ', 'Вакансий найдено', 'Вакансий обработано', 'Средняя зарплата']]
-    for language in most_popular_programing_languages:
+    for language in MOST_POPULAR_PROGRAMING_LANGUAGES:
         pagination = get_pagination_hh(language)
-        table_data_hh.append([
-            language,
-            get_main_requst_hh(language)['found'],
-            get_vacancies_processed_hh(pagination),
-            get_average_salary_hh(pagination)
-        ])
-    title = 'HeadHunter'
-    table_instance = AsciiTable(table_data_hh, title)
-    table_instance.justify_columns[4] = 'right'
-    print(table_instance.table)
-    print()
+        table_data_hh.append([language,
+                              get_main_requst_hh(language)['found'],
+                              get_vacancies_processed_hh(pagination),
+                              get_average_salary_hh(pagination)
+                              ])
+    create_table('HeadHunter', table_data_hh)
 
     table_data_sj = [['Язык программирования ', 'Вакансий найдено', 'Вакансий обработано', 'Средняя зарплата']]
-    for language in most_popular_programing_languages:
+    for language in MOST_POPULAR_PROGRAMING_LANGUAGES:
         pagination_sj = get_pagination_sj(language, headers)
         table_data_sj.append([language,
                               get_main_request_sj(language, headers)['total'],
                               get_vacancies_processed_sj(pagination_sj),
                               get_average_salary_sj(pagination_sj),
                               ])
-    title = 'SuperJob'
-    table_instance = AsciiTable(table_data_sj, title)
-    table_instance.justify_columns[4] = 'right'
-    print(table_instance.table)
+    create_table('SuperJob', table_data_sj)
 
 
 if __name__ == '__main__':
